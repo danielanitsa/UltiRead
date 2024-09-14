@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { WebhookEvent } from "@clerk/nextjs/server";
 import { db } from "@/db/db";
 import { user } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
     const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET
@@ -48,14 +49,43 @@ export async function POST(req: Request) {
 
     const eventType = evt.type
 
-    if(eventType === "user.created") {
+    if (eventType === "user.created") {
        await db.insert(user).values({
             externalUserId: payload.data.id,
             username: payload.data.username,
             imageUrl: payload.data.image_url,
             email: payload.data.email_addresses[0].email_address,
+            createdAt: payload.data.created_at
        })
     }
+
+    if (eventType === "user.updated") {
+        // Fetch the user from the database
+        const currentUser = await db.select()
+            .from(user)
+            .where(eq(user.externalUserId, payload.data.id));
+
+        // Check if the user exists
+        if (currentUser.length === 0) {
+            return new Response("User not found", {status: 404});
+        }
+
+        // Update the user details
+        await db.update(user)
+            .set({
+                username: payload.data.username,
+                imageUrl: payload.data.image_url
+            })
+            .where(eq(user.externalUserId, payload.data.id));
+
+        return new Response("User updated", {status: 200});
+    }
+
+    if (eventType === "user.deleted") {
+        await db.delete(user).where(eq(user.externalUserId, payload.data.id))
+        return new Response("User deleted", {status: 200})
+    }
+ 
 
     return new Response('', { status: 200 })
 
